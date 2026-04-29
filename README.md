@@ -11,6 +11,9 @@ A simple inventory management app built with Streamlit and SQLite. It lets you a
 - Automatic totals (items, quantity, value)
 - Aggregation reports using GROUP BY and HAVING
 - Join reports (INNER JOIN and LEFT JOIN)
+- Triggers to enforce data integrity rules
+- Subquery reports for cross-table filtering and analysis
+- Cursor-based restock procedure with a request log
 - Local SQLite database stored alongside the app
 
 ## Tech Stack

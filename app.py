@@ -55,6 +55,67 @@ def init_db():
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_items_supplier_id ON items(supplier_id)"
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS restock_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_id INTEGER NOT NULL,
+                item_name TEXT NOT NULL,
+                current_qty INTEGER NOT NULL,
+                target_qty INTEGER NOT NULL,
+                suggested_qty INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (item_id) REFERENCES items(id)
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_restock_requests_created_at "
+            "ON restock_requests(created_at)"
+        )
+        conn.executescript(
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_items_nonnegative_insert
+            BEFORE INSERT ON items
+            FOR EACH ROW
+            WHEN NEW.quantity < 0 OR NEW.price < 0
+            BEGIN
+                SELECT RAISE(ABORT, 'Quantity and price must be non-negative');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_items_nonnegative_update
+            BEFORE UPDATE ON items
+            FOR EACH ROW
+            WHEN NEW.quantity < 0 OR NEW.price < 0
+            BEGIN
+                SELECT RAISE(ABORT, 'Quantity and price must be non-negative');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_suppliers_name_not_empty_insert
+            BEFORE INSERT ON suppliers
+            FOR EACH ROW
+            WHEN TRIM(NEW.name) = ''
+            BEGIN
+                SELECT RAISE(ABORT, 'Supplier name cannot be empty');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_suppliers_name_not_empty_update
+            BEFORE UPDATE ON suppliers
+            FOR EACH ROW
+            WHEN TRIM(NEW.name) = ''
+            BEGIN
+                SELECT RAISE(ABORT, 'Supplier name cannot be empty');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_suppliers_block_delete
+            BEFORE DELETE ON suppliers
+            FOR EACH ROW
+            WHEN EXISTS (SELECT 1 FROM items WHERE supplier_id = OLD.id)
+            BEGIN
+                SELECT RAISE(ABORT, 'Cannot delete supplier linked to items');
+            END;
+            """
+        )
         conn.commit()
     finally:
         conn.close()
@@ -253,6 +314,125 @@ def fetch_join_results(join_type, city_filter):
         "ORDER BY items.name ASC"
     )
     return query_all(sql, params)
+
+
+def fetch_items_by_supplier_city_subquery(city):
+    if city:
+        sql = """
+            SELECT
+                items.id,
+                items.name,
+                items.category,
+                items.quantity,
+                items.price,
+                (SELECT name FROM suppliers WHERE id = items.supplier_id)
+                    AS supplier_name,
+                (SELECT city FROM suppliers WHERE id = items.supplier_id)
+                    AS supplier_city
+            FROM items
+            WHERE supplier_id IN (
+                SELECT id FROM suppliers WHERE city = ?
+            )
+            ORDER BY items.name ASC
+        """
+        params = (city,)
+    else:
+        sql = """
+            SELECT
+                items.id,
+                items.name,
+                items.category,
+                items.quantity,
+                items.price,
+                (SELECT name FROM suppliers WHERE id = items.supplier_id)
+                    AS supplier_name,
+                (SELECT city FROM suppliers WHERE id = items.supplier_id)
+                    AS supplier_city
+            FROM items
+            WHERE supplier_id IN (SELECT id FROM suppliers)
+            ORDER BY items.name ASC
+        """
+        params = ()
+    return query_all(sql, params)
+
+
+def fetch_items_above_category_avg():
+    sql = """
+        SELECT
+            items.id,
+            items.name,
+            items.category,
+            items.quantity,
+            items.price,
+            (
+                SELECT AVG(i2.price)
+                FROM items AS i2
+                WHERE COALESCE(i2.category, '') = COALESCE(items.category, '')
+            ) AS category_avg_price
+        FROM items
+        WHERE items.price > (
+            SELECT AVG(i3.price)
+            FROM items AS i3
+            WHERE COALESCE(i3.category, '') = COALESCE(items.category, '')
+        )
+        ORDER BY items.price DESC, items.name ASC
+    """
+    return query_all(sql)
+
+
+def run_restock_procedure(min_qty, target_qty):
+    conn = get_connection()
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        cursor = conn.execute(
+            """
+            SELECT id, name, quantity
+            FROM items
+            WHERE quantity < ?
+            ORDER BY quantity ASC
+            """,
+            (min_qty,),
+        )
+        created = 0
+        for row in cursor:
+            suggested_qty = max(target_qty - row["quantity"], 0)
+            conn.execute(
+                """
+                INSERT INTO restock_requests (
+                    item_id, item_name, current_qty, target_qty, suggested_qty, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    row["id"],
+                    row["name"],
+                    row["quantity"],
+                    target_qty,
+                    suggested_qty,
+                    now,
+                ),
+            )
+            created += 1
+        conn.commit()
+        return created
+    finally:
+        conn.close()
+
+
+def fetch_restock_requests(limit=100):
+    return query_all(
+        """
+        SELECT id, item_id, item_name, current_qty, target_qty, suggested_qty, created_at
+        FROM restock_requests
+        ORDER BY created_at DESC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+
+
+def clear_restock_requests():
+    execute("DELETE FROM restock_requests")
 
 
 def format_item_label(item):
@@ -518,6 +698,73 @@ def render_joins():
         st.info("No rows match the selected join and filter.")
 
 
+def render_procedure():
+    st.subheader("Stored Procedure (Cursor)")
+    st.caption(
+        "Runs a restock procedure using a cursor to iterate low-stock items."
+    )
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        min_qty = st.number_input(
+            "Min quantity", min_value=0, step=1, value=5
+        )
+    with col2:
+        target_qty = st.number_input(
+            "Target quantity", min_value=0, step=1, value=20
+        )
+    with col3:
+        limit = st.number_input(
+            "Show latest", min_value=1, step=10, value=50
+        )
+
+    if st.button("Run restock procedure"):
+        if target_qty < min_qty:
+            st.error(
+                "Target quantity must be greater than or equal to min quantity.")
+        else:
+            try:
+                created = run_restock_procedure(int(min_qty), int(target_qty))
+            except sqlite3.IntegrityError as exc:
+                st.error(f"Database error: {exc}")
+            else:
+                st.success(f"Created {created} restock request(s).")
+
+    st.divider()
+    requests = fetch_restock_requests(int(limit))
+    if requests:
+        st.dataframe(requests, width="stretch")
+        if st.button("Clear restock log"):
+            clear_restock_requests()
+            st.success("Restock log cleared.")
+    else:
+        st.info("No restock requests yet.")
+
+
+def render_subqueries():
+    st.subheader("Subqueries")
+    st.caption("Examples using IN and correlated subqueries.")
+
+    st.markdown("Items by supplier city (IN subquery)")
+    cities = ["All"] + fetch_supplier_cities()
+    selected_city = st.selectbox("Supplier city", cities, key="subquery_city")
+    city_filter = None if selected_city == "All" else selected_city
+
+    rows = fetch_items_by_supplier_city_subquery(city_filter)
+    if rows:
+        st.dataframe(rows, width="stretch")
+    else:
+        st.info("No items match the selected supplier city.")
+
+    st.divider()
+    st.markdown("Items priced above category average (correlated subquery)")
+    above_avg = fetch_items_above_category_avg()
+    if above_avg:
+        st.dataframe(above_avg, width="stretch")
+    else:
+        st.info("No items are priced above their category average.")
+
+
 def main():
     st.set_page_config(page_title="Inventory Manager", layout="wide")
     st.title("Inventory Management System")
@@ -526,8 +773,17 @@ def main():
 
     page = st.sidebar.radio(
         "Navigation",
-        options=["View", "Add", "Update", "Delete",
-                 "Suppliers", "Reports", "Joins"],
+        options=[
+            "View",
+            "Add",
+            "Update",
+            "Delete",
+            "Suppliers",
+            "Reports",
+            "Joins",
+            "Procedures",
+            "Subqueries",
+        ],
         index=0,
     )
 
@@ -550,8 +806,12 @@ def main():
         render_suppliers()
     elif page == "Reports":
         render_reports()
-    else:
+    elif page == "Joins":
         render_joins()
+    elif page == "Procedures":
+        render_procedure()
+    else:
+        render_subqueries()
 
 
 if __name__ == "__main__":

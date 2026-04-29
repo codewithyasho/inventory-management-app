@@ -61,6 +61,16 @@ Table: items
 - created_at: text timestamp (UTC ISO format)
 - updated_at: text timestamp (UTC ISO format)
 
+Table: restock_requests
+
+- id: integer, auto-increment, primary key
+- item_id: integer, links to items.id
+- item_name: text (snapshot of item name)
+- current_qty: integer
+- target_qty: integer
+- suggested_qty: integer
+- created_at: text timestamp (UTC ISO format)
+
 Index:
 
 - idx_items_name on name (faster name search)
@@ -124,6 +134,16 @@ Why this design is simple:
 - Compare INNER JOIN and LEFT JOIN results.
 - Optional city filter shows join behavior with conditions.
 
+### I) Procedures page
+
+- Runs a restock procedure that uses a cursor to loop over low-stock items.
+- Inserts rows into restock_requests to log suggested restocks.
+
+### J) Subqueries page
+
+- Items by supplier city using IN subqueries.
+- Items priced above category average using a correlated subquery.
+
 ## 6) Important functions in app.py (simple words)
 
 - get_connection(): Opens a SQLite connection.
@@ -154,6 +174,9 @@ Why this design is simple:
 - Uses SQL queries and indexing.
 - Shows how the UI connects to the database.
 - Demonstrates filtering, aggregation with GROUP BY/HAVING, and joins.
+- Demonstrates triggers that enforce data integrity rules.
+- Demonstrates subqueries for cross-table filtering and analysis.
+- Demonstrates a cursor-based procedure pattern for restocking.
 
 ## 9) Common questions (quick answers)
 
