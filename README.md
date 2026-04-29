@@ -5,9 +5,12 @@ A simple inventory management app built with Streamlit and SQLite. It lets you a
 ## Features
 
 - Add, update, delete inventory items
+- Manage suppliers and link items to suppliers
 - Search by item name
 - Filter by category
 - Automatic totals (items, quantity, value)
+- Aggregation reports using GROUP BY and HAVING
+- Join reports (INNER JOIN and LEFT JOIN)
 - Local SQLite database stored alongside the app
 
 ## Tech Stack

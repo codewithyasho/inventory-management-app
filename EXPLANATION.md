@@ -34,7 +34,6 @@ User -> Streamlit UI -> Python logic -> SQLite database
 ## 3) Files and their roles
 
 - app.py: The full Streamlit application and all DB functions.
-- main.py: A tiny placeholder file (not used by the Streamlit app).
 - requirements.txt: Lists streamlit as the dependency.
 - pyproject.toml: Project metadata and dependency list.
 - inventory.db: SQLite database created automatically at first run.
@@ -43,6 +42,14 @@ User -> Streamlit UI -> Python logic -> SQLite database
 
 When the app starts, it creates the items table if it does not exist.
 
+Table: suppliers
+
+- id: integer, auto-increment, primary key
+- name: text, required
+- city: text, optional
+- created_at: text timestamp (UTC ISO format)
+- updated_at: text timestamp (UTC ISO format)
+
 Table: items
 
 - id: integer, auto-increment, primary key
@@ -50,6 +57,7 @@ Table: items
 - category: text, optional
 - quantity: integer, default 0
 - price: real number, default 0
+- supplier_id: integer, optional (links to suppliers.id)
 - created_at: text timestamp (UTC ISO format)
 - updated_at: text timestamp (UTC ISO format)
 
@@ -75,7 +83,7 @@ Why this design is simple:
 
 - Search box filters by name (uses SQL LIKE).
 - Category dropdown filters by category.
-- The table shows matching items.
+- The table shows matching items, including supplier info.
 - Three metrics are shown:
   - Total items count
   - Total quantity
@@ -100,6 +108,22 @@ Why this design is simple:
 - Must tick a confirmation checkbox.
 - On delete, delete_item() removes the row.
 
+### F) Suppliers page
+
+- Add suppliers (name, city).
+- Shows all suppliers.
+- Prevents deleting suppliers that are linked to items.
+
+### G) Reports page
+
+- Category summary using GROUP BY and HAVING.
+- Supplier summary using JOIN + GROUP BY + HAVING.
+
+### H) Joins page
+
+- Compare INNER JOIN and LEFT JOIN results.
+- Optional city filter shows join behavior with conditions.
+
 ## 6) Important functions in app.py (simple words)
 
 - get_connection(): Opens a SQLite connection.
@@ -108,9 +132,13 @@ Why this design is simple:
 - query_one(): Runs a SELECT and returns one row.
 - execute(): Runs INSERT/UPDATE/DELETE.
 - insert_item(), update_item(), delete_item(): DB write helpers.
+- insert_supplier(), delete_supplier(): Supplier write helpers.
 - fetch_items(): Builds filters (search and category) and gets rows.
 - fetch_categories(): Returns distinct categories for dropdown.
 - fetch_totals(): Computes totals for the metrics row.
+- fetch_category_summary(): GROUP BY + HAVING summary per category.
+- fetch_supplier_summary(): JOIN + GROUP BY + HAVING summary per supplier.
+- fetch_join_results(): INNER or LEFT JOIN output for the joins page.
 
 ## 7) Data flow example (adding an item)
 
@@ -125,7 +153,7 @@ Why this design is simple:
 - Shows a real database table with CRUD operations.
 - Uses SQL queries and indexing.
 - Shows how the UI connects to the database.
-- Demonstrates filtering, aggregation, and updates.
+- Demonstrates filtering, aggregation with GROUP BY/HAVING, and joins.
 
 ## 9) Common questions (quick answers)
 
