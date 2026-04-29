@@ -29,7 +29,8 @@ def init_db():
             )
             """
         )
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_items_name ON items(name)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_items_name ON items(name)")
         conn.commit()
     finally:
         conn.close()
@@ -163,14 +164,16 @@ def render_add():
         name = st.text_input("Item name")
         category = st.text_input("Category")
         quantity = st.number_input("Quantity", min_value=0, step=1)
-        price = st.number_input("Price", min_value=0.0, step=0.01, format="%.2f")
+        price = st.number_input("Price", min_value=0.0,
+                                step=0.01, format="%.2f")
         submitted = st.form_submit_button("Add")
 
     if submitted:
         if not name.strip():
             st.error("Item name is required.")
             return
-        insert_item(name.strip(), category.strip(), int(quantity), float(price))
+        insert_item(name.strip(), category.strip(),
+                    int(quantity), float(price))
         st.success("Item added.")
 
 
@@ -188,7 +191,8 @@ def render_update():
 
     with st.form("update_item"):
         name = st.text_input("Item name", value=selected_item["name"])
-        category = st.text_input("Category", value=selected_item["category"] or "")
+        category = st.text_input(
+            "Category", value=selected_item["category"] or "")
         quantity = st.number_input(
             "Quantity", min_value=0, step=1, value=int(selected_item["quantity"])
         )
@@ -238,7 +242,7 @@ def render_delete():
 
 def main():
     st.set_page_config(page_title="Inventory Manager", layout="wide")
-    st.title("Inventory Manager")
+    st.title("Inventory Management System")
 
     init_db()
 
@@ -246,6 +250,13 @@ def main():
         "Navigation",
         options=["View", "Add", "Update", "Delete"],
         index=0,
+    )
+
+    st.sidebar.subheader("Project Contributers")
+    st.sidebar.markdown(
+        "- Namarata Gilbile (A-50)\n"
+        "- Divya Giri (A-38)\n"
+        "- Yashodeep Hundiwale (A-55)"
     )
 
     if page == "View":
